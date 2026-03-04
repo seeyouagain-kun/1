@@ -8,11 +8,7 @@ import numpy as np
 def normalize_angle(angle: float) -> float:
     """将角度截断到 [-π, π] 范围（用于 yaw）。"""
 
-    while angle > np.pi:
-        angle -= 2 * np.pi
-    while angle < -np.pi:
-        angle += 2 * np.pi
-    return angle
+    return float((angle + np.pi) % (2 * np.pi) - np.pi)
 
 
 def compute_relative_angles(relative_vector: np.ndarray, yaw: float, pitch: float) -> Tuple[float, float]:
