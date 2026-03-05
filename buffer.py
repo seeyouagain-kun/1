@@ -65,6 +65,44 @@ class TaskReplayBuffer:
         self._ptr = (self._ptr + 1) % self.capacity
         self._size = min(self._size + 1, self.capacity)
 
+    def bulk_add(
+        self,
+        obs: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_obs: np.ndarray,
+        dones: np.ndarray,
+    ) -> None:
+        """批量添加多个 transition（向量化，比逐条 add 更快）。
+        Bulk-add multiple transitions using vectorized numpy indexing.
+
+        参数形状 / Parameter shapes: (T, dim) where T = number of transitions.
+        rewards and dones may be 1-D (T,) or 2-D (T, 1).
+        """
+        T = len(obs)
+        if T == 0:
+            return
+        # 若 T 超过容量，只保留最后 capacity 条 / Keep only last capacity entries if T > capacity
+        if T > self.capacity:
+            obs = obs[-self.capacity:]
+            actions = actions[-self.capacity:]
+            rewards = rewards[-self.capacity:]
+            next_obs = next_obs[-self.capacity:]
+            dones = dones[-self.capacity:]
+            T = self.capacity
+
+        indices = np.arange(self._ptr, self._ptr + T) % self.capacity
+        self._obs[indices] = obs
+        self._actions[indices] = actions
+        self._rewards[indices] = rewards.reshape(-1, 1) if rewards.ndim == 1 else rewards
+        self._next_obs[indices] = next_obs
+        self._dones[indices] = (
+            dones.reshape(-1, 1).astype(np.float32) if dones.ndim == 1 else dones.astype(np.float32)
+        )
+
+        self._ptr = (self._ptr + T) % self.capacity
+        self._size = min(self._size + T, self.capacity)
+
     def sample(
         self, batch_size: int, device: torch.device
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -172,19 +210,18 @@ class MultiTaskReplayBuffer:
         dones: np.ndarray,
     ) -> None:
         """
-        批量添加一个 episode 的数据。
-        Bulk-add an entire episode's data.
+        批量添加一个 episode 的数据（向量化）。
+        Bulk-add an entire episode's data using vectorized numpy insertion.
 
         参数形状 / Parameter shapes: (T, dim) where T = episode length
         """
-        for t in range(len(observations)):
-            self._buffers[task_idx].add(
-                observations[t],
-                actions[t],
-                float(rewards[t]),
-                next_observations[t],
-                bool(dones[t]),
-            )
+        self._buffers[task_idx].bulk_add(
+            np.asarray(observations, dtype=np.float32),
+            np.asarray(actions, dtype=np.float32),
+            np.asarray(rewards, dtype=np.float32),
+            np.asarray(next_observations, dtype=np.float32),
+            np.asarray(dones, dtype=np.float32),
+        )
 
     # ------------------------------------------------------------------
     # 采样接口 / Sampling interface
